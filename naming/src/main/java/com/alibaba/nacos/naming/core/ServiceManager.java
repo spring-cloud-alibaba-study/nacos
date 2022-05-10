@@ -480,13 +480,14 @@ public class ServiceManager implements RecordListener<Service> {
      * @throws Exception any error occurred in the process
      */
     public void registerInstance(String namespaceId, String serviceName, Instance instance) throws NacosException {
-        
+        //  ServiceManager#serviceMap属性：Map(namespace, Map(group::serviceName, Service))，里面注册着各个服务实例
+        //  如果是第一次，则创建空的服务，放入注册表
         createEmptyService(namespaceId, serviceName, instance.isEphemeral());
-        
+        // 从注册表中拿到 service
         Service service = getService(namespaceId, serviceName);
         
         checkServiceIsNull(service, namespaceId, serviceName);
-        
+        // 【关键】添加实例到 service 当中
         addInstance(namespaceId, serviceName, instance.isEphemeral(), instance);
     }
     
@@ -524,11 +525,11 @@ public class ServiceManager implements RecordListener<Service> {
      */
     public List<Instance> updateMetadata(String namespaceId, String serviceName, boolean isEphemeral, String action,
             boolean all, List<Instance> ips, Map<String, String> metadata) throws NacosException {
-        
+        // 根据 namespaceId, serviceName 获取服务信息
         Service service = getService(namespaceId, serviceName);
-        
+        // 检查服务是否为空
         checkServiceIsNull(service, namespaceId, serviceName);
-        
+        // 获取本地的实例信息
         List<Instance> locatedInstance = getLocatedInstance(namespaceId, serviceName, isEphemeral, all, ips);
         
         if (CollectionUtils.isEmpty(locatedInstance)) {
@@ -545,7 +546,7 @@ public class ServiceManager implements RecordListener<Service> {
         }
         Instance[] instances = new Instance[locatedInstance.size()];
         locatedInstance.toArray(instances);
-        
+        // 清理相关的服务实例后重新将剩余的服务实例进行add操作
         addInstance(namespaceId, serviceName, isEphemeral, instances);
         
         return locatedInstance;
@@ -568,7 +569,7 @@ public class ServiceManager implements RecordListener<Service> {
     
     /**
      * Locate consistency's datum by all or instances provided.
-     *
+     * 通过所有或提供的实例找到一致性的数据。
      * @param namespaceId        namespace
      * @param serviceName        serviceName
      * @param isEphemeral        isEphemeral
@@ -627,20 +628,32 @@ public class ServiceManager implements RecordListener<Service> {
      * @param ephemeral   whether instance is ephemeral
      * @param ips         instances
      * @throws NacosException nacos exception
+     * 该方法中对修改服务列表的动作加锁处理，确保线程安全。而在同步代码块中，包含下面几步：
+     *
+     * 1）先获取要更新的实例列表，addIpAddresses(service, ephemeral, ips);
+     * 2）然后将更新后的数据封装到Instances对象中，后面更新注册表时使用
+     * 3）最后，调用consistencyService.put()方法完成Nacos集群的数据同步，保证集群一致性。
+     * 注意：在第1步的addIPAddress中，会拷贝旧的实例列表，添加新实例到列表中。在第3步中，完成对实例状态更新后，
+     * 则会用新列表直接覆盖旧实例列表。而在更新过程中，旧实例列表不受影响，用户依然可以读取。
+     *
+     * COPY ON WRITE：在更新列表状态过程中，无需阻塞用户的读操作，也不会导致用户读取到脏数据，性能比较好。
      */
     public void addInstance(String namespaceId, String serviceName, boolean ephemeral, Instance... ips)
             throws NacosException {
-        
+        // 给当前服务生成一个唯一标识，可以理解为 serviceId
+        // 临时：com.alibaba.nacos.naming.iplist.ephemeral. + namespaceId + ## + serviceName
+        // 永久：com.alibaba.nacos.naming.iplist. + namespaceId + ## + serviceName
         String key = KeyBuilder.buildInstanceListKey(namespaceId, serviceName, ephemeral);
-        
+        // 从注册表中拿到 service
         Service service = getService(namespaceId, serviceName);
-        
+        // 以 service 为锁对象，同一个服务的多个实例，只能串行来完成注册（不能并发修改）
         synchronized (service) {
+            // 【重点】拷贝注册表中 旧的实例列表，在此结合新注册的实例，得到最终的实例列表 COPY ON WRITE
             List<Instance> instanceList = addIpAddresses(service, ephemeral, ips);
-            
+            // 封装实例列表到 Instances 对象中
             Instances instances = new Instances();
             instances.setInstanceList(instanceList);
-            
+            // 更新注册表（更新本地注册表、数据同步给 Nacos 集群中的其他节点）
             consistencyService.put(key, instances);
         }
     }
@@ -656,8 +669,9 @@ public class ServiceManager implements RecordListener<Service> {
      */
     public void removeInstance(String namespaceId, String serviceName, boolean ephemeral, Instance... ips)
             throws NacosException {
+        // 获取服务
         Service service = getService(namespaceId, serviceName);
-        
+        // 避免重复下线上锁
         synchronized (service) {
             removeInstance(namespaceId, serviceName, ephemeral, service, ips);
         }
@@ -665,9 +679,9 @@ public class ServiceManager implements RecordListener<Service> {
     
     private void removeInstance(String namespaceId, String serviceName, boolean ephemeral, Service service,
             Instance... ips) throws NacosException {
-        
+        // 获取key内容
         String key = KeyBuilder.buildInstanceListKey(namespaceId, serviceName, ephemeral);
-        
+        // 获取需要下线的相关服务
         List<Instance> instanceList = substractIpAddresses(service, ephemeral, ips);
         
         Instances instances = new Instances();
@@ -701,7 +715,7 @@ public class ServiceManager implements RecordListener<Service> {
     
     /**
      * batch operate kinds of resources.
-     *
+     * 批量操作各种资源。
      * @param namespace       namespace.
      * @param operationInfo   operation resources description.
      * @param operateFunction some operation defined by kinds of situation.
@@ -764,26 +778,27 @@ public class ServiceManager implements RecordListener<Service> {
      */
     public List<Instance> updateIpAddresses(Service service, String action, boolean ephemeral, Instance... ips)
             throws NacosException {
-        
+        // 从 DataStore 中获取实例列表，可以理解为 Nacos 集群同步来的实例列表
         Datum datum = consistencyService
                 .get(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), ephemeral));
-        
+        // 从本地注册表中，获取实例列表
         List<Instance> currentIPs = service.allIPs(ephemeral);
         Map<String, Instance> currentInstances = new HashMap<>(currentIPs.size());
         Set<String> currentInstanceIds = CollectionUtils.set();
-        
+        // 封装本地注册表中实例列表
         for (Instance instance : currentIPs) {
             currentInstances.put(instance.toIpAddr(), instance);
             currentInstanceIds.add(instance.getInstanceId());
         }
-        
+        // 合并与拷贝，旧实例列表
         Map<String, Instance> instanceMap;
         if (datum != null && null != datum.value) {
+            // 如果集群同步列表中有数据，则将本地注册列表和 datum 中的列表做合并
             instanceMap = setValid(((Instances) datum.value).getInstanceList(), currentInstances);
         } else {
             instanceMap = new HashMap<>(ips.length);
         }
-        
+        // 遍历新实例列表
         for (Instance instance : ips) {
             if (!service.getClusterMap().containsKey(instance.getClusterName())) {
                 Cluster cluster = new Cluster(instance.getClusterName(), service);
@@ -797,10 +812,13 @@ public class ServiceManager implements RecordListener<Service> {
             if (UtilsAndCommons.UPDATE_INSTANCE_ACTION_REMOVE.equals(action)) {
                 instanceMap.remove(instance.getDatumKey());
             } else {
+                // 尝试获取与当前实例ip、端口一致的旧实例
                 Instance oldInstance = instanceMap.get(instance.getDatumKey());
                 if (oldInstance != null) {
+                    // 如果存在，则把旧的 instanceId 赋值作为新的 instanceId
                     instance.setInstanceId(oldInstance.getInstanceId());
                 } else {
+                    // 如果不存在，证明是一个全新实例，则生成id
                     instance.setInstanceId(instance.generateInstanceId(currentInstanceIds));
                 }
                 instanceMap.put(instance.getDatumKey(), instance);
@@ -813,7 +831,7 @@ public class ServiceManager implements RecordListener<Service> {
                     "ip list can not be empty, service: " + service.getName() + ", ip list: " + JacksonUtils
                             .toJson(instanceMap.values()));
         }
-        
+        // 返回实例列表
         return new ArrayList<>(instanceMap.values());
     }
     

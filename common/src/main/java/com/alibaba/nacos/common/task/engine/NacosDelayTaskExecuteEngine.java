@@ -151,6 +151,7 @@ public class NacosDelayTaskExecuteEngine extends AbstractNacosTaskExecuteEngine<
             }
             try {
                 // ReAdd task if process failed
+                // 尝试执行同步任务，如果失败会重试
                 if (!processor.process(task)) {
                     retryFailedTask(taskKey, task);
                 }

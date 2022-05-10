@@ -96,7 +96,7 @@ public class InstanceController {
     
     /**
      * Register new instance.
-     *
+     * 注册一个新的实例
      * @param request http request
      * @return 'ok' if success
      * @throws Exception any error during register
@@ -105,22 +105,23 @@ public class InstanceController {
     @PostMapping
     @Secured(action = ActionTypes.WRITE)
     public String register(HttpServletRequest request) throws Exception {
-        
+        //  1、从 request 获取 namespaceId，没有则为默认 public
         final String namespaceId = WebUtils
                 .optional(request, CommonParams.NAMESPACE_ID, Constants.DEFAULT_NAMESPACE_ID);
+        // 2、获取服务的名称  serviceName =   "group@@serviceName"
         final String serviceName = WebUtils.required(request, CommonParams.SERVICE_NAME);
         NamingUtils.checkServiceNameFormat(serviceName);
-        
+        // 3、封装request对象为一个实例 Instance
         final Instance instance = HttpRequestInstanceBuilder.newBuilder()
                 .setDefaultInstanceEphemeral(switchDomain.isDefaultInstanceEphemeral()).setRequest(request).build();
-        
+        // 4、核心注册实例
         getInstanceOperator().registerInstance(namespaceId, serviceName, instance);
         return "ok";
     }
     
     /**
      * Deregister instances.
-     *
+     * 服务下线
      * @param request http request
      * @return 'ok' if success
      * @throws Exception any error during deregister
@@ -129,6 +130,10 @@ public class InstanceController {
     @DeleteMapping
     @Secured(action = ActionTypes.WRITE)
     public String deregister(HttpServletRequest request) throws Exception {
+        // 构建服务实例信息
+        //TODO: 不成熟的猜想
+        // 1、构建对应的实例
+        // 2、查询注册的实例信息 如果包含则下线 ，不包含则不处理
         Instance instance = HttpRequestInstanceBuilder.newBuilder()
                 .setDefaultInstanceEphemeral(switchDomain.isDefaultInstanceEphemeral()).setRequest(request).build();
         String namespaceId = WebUtils.optional(request, CommonParams.NAMESPACE_ID, Constants.DEFAULT_NAMESPACE_ID);
@@ -194,7 +199,7 @@ public class InstanceController {
     
     /**
      * Batch delete instance's metadata. old key exist = delete, old key not exist = not operate
-     *
+     * 批量删除实例的元数据。
      * @param request http request
      * @return success updated instances. such as '{"updated":["2.2.2.2:8080:unknown:xxxx-cluster:ephemeral"}'.
      * @throws Exception any error during update
@@ -204,6 +209,7 @@ public class InstanceController {
     @DeleteMapping("/metadata/batch")
     @Secured(action = ActionTypes.WRITE)
     public ObjectNode batchDeleteInstanceMetadata(HttpServletRequest request) throws Exception {
+        // 获取基本参数
         final String namespaceId = WebUtils
                 .optional(request, CommonParams.NAMESPACE_ID, Constants.DEFAULT_NAMESPACE_ID);
         String serviceName = WebUtils.required(request, CommonParams.SERVICE_NAME);
@@ -363,7 +369,7 @@ public class InstanceController {
     @PutMapping("/beat")
     @Secured(action = ActionTypes.WRITE)
     public ObjectNode beat(HttpServletRequest request) throws Exception {
-        
+        // 解析心跳的请求参数
         ObjectNode result = JacksonUtils.createEmptyJsonNode();
         result.put(SwitchEntry.CLIENT_BEAT_INTERVAL, switchDomain.getClientBeatInterval());
         

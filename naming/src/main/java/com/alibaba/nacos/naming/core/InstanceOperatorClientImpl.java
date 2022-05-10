@@ -213,14 +213,18 @@ public class InstanceOperatorClientImpl implements InstanceOperator {
     @Override
     public int handleBeat(String namespaceId, String serviceName, String ip, int port, String cluster,
             RsInfo clientBeat, BeatInfoInstanceBuilder builder) throws NacosException {
+        // 获取 服务和客户端ID
         Service service = getService(namespaceId, serviceName, true);
+        // clientId = 127.0.0.1:8080#true
         String clientId = IpPortBasedClient.getClientId(ip + InternetAddressUtil.IP_PORT_SPLITER + port, true);
+        // 获取对应的客户端ID
         IpPortBasedClient client = (IpPortBasedClient) clientManager.getClient(clientId);
         if (null == client || !client.getAllPublishedService().contains(service)) {
             if (null == clientBeat) {
                 return NamingResponseCode.RESOURCE_NOT_FOUND;
             }
             Instance instance = builder.setBeatInfo(clientBeat).setServiceName(serviceName).build();
+            // 这个时候监听不到重新注册实例
             registerInstance(namespaceId, serviceName, instance);
             client = (IpPortBasedClient) clientManager.getClient(clientId);
         }
@@ -240,10 +244,13 @@ public class InstanceOperatorClientImpl implements InstanceOperator {
         client.setLastUpdatedTime();
         return NamingResponseCode.OK;
     }
-    
+    /**
+     * 获取心跳间隔
+     */
     @Override
     public long getHeartBeatInterval(String namespaceId, String serviceName, String ip, int port, String cluster) {
         Service service = getService(namespaceId, serviceName, true);
+        // 元数据id
         String metadataId = InstancePublishInfo.genMetadataId(ip, port, cluster);
         Optional<InstanceMetadata> metadata = metadataManager.getInstanceMetadata(service, metadataId);
         if (metadata.isPresent() && metadata.get().getExtendData()

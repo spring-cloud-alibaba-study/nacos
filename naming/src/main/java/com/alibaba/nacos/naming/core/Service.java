@@ -178,7 +178,7 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
     public void onChange(String key, Instances value) throws Exception {
         
         Loggers.SRV_LOG.info("[NACOS-RAFT] datum is changed, key: {}, value: {}", key, value);
-        
+        // 对权重做初始化
         for (Instance instance : value.getInstanceList()) {
             
             if (instance == null) {
@@ -194,7 +194,7 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
                 instance.setWeight(0.01D);
             }
         }
-        
+        // 更新实例列表
         updateIPs(value.getInstanceList(), KeyBuilder.matchEphemeralInstanceListKey(key));
         
         recalculateChecksum();
@@ -235,11 +235,12 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
      * @param ephemeral whether is ephemeral instance
      */
     public void updateIPs(Collection<Instance> instances, boolean ephemeral) {
+        // 创建新的 map，相当于一个新的 clusterMap
         Map<String, List<Instance>> ipMap = new HashMap<>(clusterMap.size());
         for (String clusterName : clusterMap.keySet()) {
             ipMap.put(clusterName, new ArrayList<>());
         }
-        
+        // 把所有实例放入新的 clusterMap
         for (Instance instance : instances) {
             try {
                 if (instance == null) {
@@ -271,10 +272,11 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
                 Loggers.SRV_LOG.error("[NACOS-DOM] failed to process ip: " + instance, e);
             }
         }
-        
+        // 遍历新的 clusterMap，得到 cluster 中的实例列表
         for (Map.Entry<String, List<Instance>> entry : ipMap.entrySet()) {
             //make every ip mine
             List<Instance> entryIPs = entry.getValue();
+            // 【重点】把新实例列表，更新到注册表中的 cluster 中
             clusterMap.get(entry.getKey()).updateIps(entryIPs, ephemeral);
         }
         

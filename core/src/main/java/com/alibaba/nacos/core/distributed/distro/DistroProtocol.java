@@ -112,6 +112,7 @@ public class DistroProtocol {
      * @param delay     delay time for sync
      */
     public void sync(DistroKey distroKey, DataOperation action, long delay) {
+        // 遍历，获取 Nacos 集群中的所有成员，除了自己
         for (Member each : memberManager.allMembersWithoutSelf()) {
             syncToTarget(distroKey, action, each.getAddress(), delay);
         }
@@ -128,7 +129,9 @@ public class DistroProtocol {
     public void syncToTarget(DistroKey distroKey, DataOperation action, String targetServer, long delay) {
         DistroKey distroKeyWithTarget = new DistroKey(distroKey.getResourceKey(), distroKey.getResourceType(),
                 targetServer);
+        // 定义一个Distro的同步任务
         DistroDelayTask distroDelayTask = new DistroDelayTask(distroKeyWithTarget, action, delay);
+        // 交给线程池去执行
         distroTaskEngineHolder.getDelayTaskExecuteEngine().addTask(distroKeyWithTarget, distroDelayTask);
         if (Loggers.DISTRO.isDebugEnabled()) {
             Loggers.DISTRO.debug("[DISTRO-SCHEDULE] {} to {}", distroKey, targetServer);

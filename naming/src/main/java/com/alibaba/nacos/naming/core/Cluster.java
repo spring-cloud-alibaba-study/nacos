@@ -236,7 +236,7 @@ public class Cluster extends com.alibaba.nacos.api.naming.pojo.Cluster implement
      * @param ephemeral whether these instances are ephemeral
      */
     public void updateIps(List<Instance> ips, boolean ephemeral) {
-        
+        // 先得到旧的实例列表
         Set<Instance> toUpdateInstances = ephemeral ? ephemeralInstances : persistentInstances;
         
         HashMap<String, Instance> oldIpMap = new HashMap<>(toUpdateInstances.size());
@@ -244,7 +244,8 @@ public class Cluster extends com.alibaba.nacos.api.naming.pojo.Cluster implement
         for (Instance ip : toUpdateInstances) {
             oldIpMap.put(ip.getDatumKey(), ip);
         }
-        
+        // ips 中包含两部分：新增的实例，要更新的实例
+        // 新旧实例列表交集，得到要更新的部分
         List<Instance> updatedIps = updatedIps(ips, oldIpMap.values());
         if (updatedIps.size() > 0) {
             for (Instance ip : updatedIps) {
@@ -269,7 +270,7 @@ public class Cluster extends com.alibaba.nacos.api.naming.pojo.Cluster implement
                 }
             }
         }
-        
+        // 新旧实例列表相减，得到待新增的实例列表
         List<Instance> newIPs = subtract(ips, oldIpMap.values());
         if (newIPs.size() > 0) {
             Loggers.EVT_LOG
@@ -280,7 +281,7 @@ public class Cluster extends com.alibaba.nacos.api.naming.pojo.Cluster implement
                 HealthCheckStatus.reset(ip);
             }
         }
-        
+        // 旧新实例列表相减，得到待删除的实例列表（即旧实例列表有，而新实例列表没有，需删除）
         List<Instance> deadIPs = subtract(oldIpMap.values(), ips);
         
         if (deadIPs.size() > 0) {
@@ -294,7 +295,7 @@ public class Cluster extends com.alibaba.nacos.api.naming.pojo.Cluster implement
         }
         
         toUpdateInstances = new HashSet<>(ips);
-        
+        // 用新实例列表直接覆盖了 cluster 中的旧实例列表
         if (ephemeral) {
             ephemeralInstances = toUpdateInstances;
         } else {

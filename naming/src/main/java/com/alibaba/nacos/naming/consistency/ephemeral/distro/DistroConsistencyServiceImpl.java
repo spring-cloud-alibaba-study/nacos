@@ -102,26 +102,33 @@ public class DistroConsistencyServiceImpl implements EphemeralConsistencyService
         this.globalConfig = globalConfig;
         this.distroProtocol = distroProtocol;
     }
-    
+
+    // 一个bean的初始化过程中，方法执行先后顺序为 Constructor > @Autowired > @PostConstruct
+    // 在依赖加载后，对象使用前执行，而且只执行一次
     @PostConstruct
     public void init() {
+        // 利用线程池执行 notifier
         GlobalExecutor.submitDistroNotifyTask(notifier);
     }
     
     @Override
     public void put(String key, Record value) throws NacosException {
+        // 异步，更新本地注册表
         onPut(key, value);
         // If upgrade to 2.0.X, do not sync for v1.
         if (ApplicationUtils.getBean(UpgradeJudgement.class).isUseGrpcFeatures()) {
             return;
         }
+        // 异步，将数据同步给 Nacos 集群中的其他节点
         distroProtocol.sync(new DistroKey(key, KeyBuilder.INSTANCE_LIST_KEY_PREFIX), DataOperation.CHANGE,
                 DistroConfig.getInstance().getSyncDelayMillis());
     }
     
     @Override
     public void remove(String key) throws NacosException {
+        // 移除对应的服务
         onRemove(key);
+        // 移除监听
         listeners.remove(key);
     }
     
@@ -137,19 +144,23 @@ public class DistroConsistencyServiceImpl implements EphemeralConsistencyService
      * @param value record
      */
     public void onPut(String key, Record value) {
-        
+        // 判断是否是临时实例
         if (KeyBuilder.matchEphemeralInstanceListKey(key)) {
+            // 把实例列表封装到 Datum
             Datum<Instances> datum = new Datum<>();
+            // value 是服务中的实例列表 Instances
             datum.value = (Instances) value;
+            // key 是 serviceId
             datum.key = key;
             datum.timestamp.incrementAndGet();
+            // 以 serviceId 为 key，Datum 为 value 缓存起来
             dataStore.put(key, datum);
         }
         
         if (!listeners.containsKey(key)) {
             return;
         }
-        
+        // 【重点】把 serviceId 和当前操作类型存入 notifier
         notifier.addTask(key, DataOperation.CHANGE);
     }
     
@@ -165,7 +176,7 @@ public class DistroConsistencyServiceImpl implements EphemeralConsistencyService
         if (!listeners.containsKey(key)) {
             return;
         }
-        
+        // 发布通知任务
         notifier.addTask(key, DataOperation.DELETE);
     }
     
@@ -396,6 +407,7 @@ public class DistroConsistencyServiceImpl implements EphemeralConsistencyService
             if (action == DataOperation.CHANGE) {
                 services.put(datumKey, StringUtils.EMPTY);
             }
+            // 把 serviceId 和事件放入阻塞队列
             tasks.offer(Pair.with(datumKey, action));
         }
         
@@ -406,10 +418,12 @@ public class DistroConsistencyServiceImpl implements EphemeralConsistencyService
         @Override
         public void run() {
             Loggers.DISTRO.info("distro notifier started");
-            
+            // 死循环
             for (; ; ) {
                 try {
+                    // 从阻塞队列中获取任务
                     Pair<String, DataOperation> pair = tasks.take();
+                    // 执行任务，更新服务列表
                     handle(pair);
                 } catch (Throwable e) {
                     Loggers.DISTRO.error("[NACOS-DISTRO] Error while handling notifying task", e);
@@ -419,7 +433,9 @@ public class DistroConsistencyServiceImpl implements EphemeralConsistencyService
         
         private void handle(Pair<String, DataOperation> pair) {
             try {
+                // 获取 serviceId
                 String datumKey = pair.getValue0();
+                // 事件类型，是 CHANGE 类型
                 DataOperation action = pair.getValue1();
                 
                 services.remove(datumKey);
@@ -435,6 +451,7 @@ public class DistroConsistencyServiceImpl implements EphemeralConsistencyService
                     count++;
                     
                     try {
+                        // 【重点】这里的 listener 就是 service，当服务变更时，自然就触发了 onChange 事件，处理变更
                         if (action == DataOperation.CHANGE) {
                             listener.onChange(datumKey, dataStore.get(datumKey).value);
                             continue;

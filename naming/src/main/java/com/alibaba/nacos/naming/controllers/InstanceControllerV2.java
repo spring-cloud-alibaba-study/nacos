@@ -396,6 +396,7 @@ public class InstanceControllerV2 {
      * @param beat        instance beat info
      * @return detail information of instance
      * @throws Exception any error during handle
+     * 心跳检测
      */
     @CanDistro
     @PutMapping("/beat")
