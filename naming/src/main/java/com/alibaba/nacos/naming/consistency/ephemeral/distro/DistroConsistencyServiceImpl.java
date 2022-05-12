@@ -110,7 +110,9 @@ public class DistroConsistencyServiceImpl implements EphemeralConsistencyService
         // 利用线程池执行 notifier
         GlobalExecutor.submitDistroNotifyTask(notifier);
     }
-    
+    //1、 将实例信息存放到内存缓存 ConcurrentHashMap 里面。
+    //2、 添加一个任务到 BlockingQueue 队列里面，这个任务就是将最新的实例列表通过 UDP 的方式推送给所有客户端（服务实例），这样客户端就拿到了最新的服务实例列表。没想到吧，计算机网络的知识终于用上了~
+    //3、 开启 1s 的延迟任务，将数据通过给其他 Nacos 节点
     @Override
     public void put(String key, Record value) throws NacosException {
         // 异步，更新本地注册表
@@ -119,7 +121,7 @@ public class DistroConsistencyServiceImpl implements EphemeralConsistencyService
         if (ApplicationUtils.getBean(UpgradeJudgement.class).isUseGrpcFeatures()) {
             return;
         }
-        // 异步，将数据同步给 Nacos 集群中的其他节点
+        // 异步，将数据同步给 Nacos 集群中的其他节点 开启 1s 的延迟任务
         distroProtocol.sync(new DistroKey(key, KeyBuilder.INSTANCE_LIST_KEY_PREFIX), DataOperation.CHANGE,
                 DistroConfig.getInstance().getSyncDelayMillis());
     }
