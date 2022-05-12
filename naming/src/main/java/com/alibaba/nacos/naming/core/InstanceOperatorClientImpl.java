@@ -244,11 +244,10 @@ public class InstanceOperatorClientImpl implements InstanceOperator {
         client.setLastUpdatedTime();
         return NamingResponseCode.OK;
     }
-    /**
-     * 获取心跳间隔
-     */
+
     @Override
     public long getHeartBeatInterval(String namespaceId, String serviceName, String ip, int port, String cluster) {
+        // 获取心跳间隔
         Service service = getService(namespaceId, serviceName, true);
         // 元数据id
         String metadataId = InstancePublishInfo.genMetadataId(ip, port, cluster);
