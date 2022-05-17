@@ -88,7 +88,7 @@ public class RpcConfigChangeNotifier extends Subscriber<LocalDataChangeEvent> {
      */
     public void configDataChanged(String groupKey, String dataId, String group, String tenant, boolean isBeta,
             List<String> betaIps, String tag) {
-        
+        // 获取变更配置对应的客户端
         Set<String> listeners = configChangeListenContext.getListeners(groupKey);
         if (CollectionUtils.isEmpty(listeners)) {
             return;
@@ -99,7 +99,7 @@ public class RpcConfigChangeNotifier extends Subscriber<LocalDataChangeEvent> {
             if (connection == null) {
                 continue;
             }
-            
+            // 根据客户端获取连接
             ConnectionMeta metaInfo = connection.getMetaInfo();
             //beta ips check.
             String clientIp = metaInfo.getClientIp();
@@ -111,10 +111,11 @@ public class RpcConfigChangeNotifier extends Subscriber<LocalDataChangeEvent> {
             if (StringUtils.isNotBlank(tag) && !tag.equals(clientTag)) {
                 continue;
             }
-            
+            // 构造请求
             ConfigChangeNotifyRequest notifyRequest = ConfigChangeNotifyRequest.build(dataId, group, tenant);
-            
+            // 构造任务
             RpcPushTask rpcPushRetryTask = new RpcPushTask(notifyRequest, 50, client, clientIp, metaInfo.getAppName());
+            // 发送请求
             push(rpcPushRetryTask);
             notifyClientCount++;
         }
@@ -197,6 +198,7 @@ public class RpcConfigChangeNotifier extends Subscriber<LocalDataChangeEvent> {
     private void push(RpcPushTask retryTask) {
         ConfigChangeNotifyRequest notifyRequest = retryTask.notifyRequest;
         if (retryTask.isOverTimes()) {
+            // 请求超时，移除链接
             Loggers.REMOTE_PUSH.warn(
                     "push callback retry fail over times .dataId={},group={},tenant={},clientId={},will unregister client.",
                     notifyRequest.getDataId(), notifyRequest.getGroup(), notifyRequest.getTenant(),
@@ -204,6 +206,7 @@ public class RpcConfigChangeNotifier extends Subscriber<LocalDataChangeEvent> {
             connectionManager.unregister(retryTask.connectionId);
         } else if (connectionManager.getConnection(retryTask.connectionId) != null) {
             // first time :delay 0s; sencond time:delay 2s  ;third time :delay 4s
+            // 重试机制
             ConfigExecutor.getClientConfigNotifierServiceExecutor()
                     .schedule(retryTask, retryTask.tryTimes * 2, TimeUnit.SECONDS);
         } else {

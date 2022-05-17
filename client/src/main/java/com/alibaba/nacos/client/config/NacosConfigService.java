@@ -72,12 +72,14 @@ public class NacosConfigService implements ConfigService {
     
     public NacosConfigService(Properties properties) throws NacosException {
         ValidatorUtils.checkInitParam(properties);
-        
+        // 初始化 命名空间，放到 properties 中。
         initNamespace(properties);
+        // 设置请求过滤器
         this.configFilterChainManager = new ConfigFilterChainManager(properties);
+        // 设置服务器名称列表的线程任务
         ServerListManager serverListManager = new ServerListManager(properties);
         serverListManager.start();
-        
+        // 重头戏，创建ClientWorker
         this.worker = new ClientWorker(this.configFilterChainManager, serverListManager, properties);
         // will be deleted in 2.0 later versions
         agent = new ServerHttpAgent(serverListManager);

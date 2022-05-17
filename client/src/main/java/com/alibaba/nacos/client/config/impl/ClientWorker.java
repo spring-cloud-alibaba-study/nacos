@@ -406,9 +406,10 @@ public class ClientWorker implements Closeable {
         this.configFilterChainManager = configFilterChainManager;
         
         init(properties);
-        
+        // 创建 Grpc 请求类
         agent = new ConfigRpcTransportClient(properties, serverListManager);
         int count = ThreadUtils.getSuitableThreadCount(THREAD_MULTIPLE);
+        // (重要)设置线程任务。该线程任务用于同步配置。
         ScheduledExecutorService executorService = Executors
                 .newScheduledThreadPool(Math.max(count, MIN_THREAD_NUM), r -> {
                     Thread t = new Thread(r);
@@ -529,6 +530,7 @@ public class ClientWorker implements Closeable {
         
         /**
          * 5 minutes to check all listen cache keys.
+         * 5 分钟执行一次全量同步。
          */
         private static final long ALL_SYNC_INTERNAL = 5 * 60 * 1000L;
         
@@ -599,12 +601,14 @@ public class ClientWorker implements Closeable {
                     String groupKey = GroupKey
                             .getKeyTenant(configChangeNotifyRequest.getDataId(), configChangeNotifyRequest.getGroup(),
                                     configChangeNotifyRequest.getTenant());
-                    
+                    // 获取 CacheData
                     CacheData cacheData = cacheMap.get().get(groupKey);
                     if (cacheData != null) {
                         synchronized (cacheData) {
+                            // 设置服务器同步标志
                             cacheData.getLastModifiedTs().set(System.currentTimeMillis());
                             cacheData.setSyncWithServer(false);
+                            // 立即触发该CacheData的同步配置操作
                             notifyListenConfig();
                         }
                         
@@ -692,6 +696,10 @@ public class ClientWorker implements Closeable {
                         if (executor.isShutdown() || executor.isTerminated()) {
                             continue;
                         }
+//                        获取队列头部元素，如果获取不到则等待5s。Nacos 通过这种方式来控制循环间隔。
+//                        这里需要特别注意，Nacos 通过调用notifyListenConfig()向 listenExecutebell 设置元素的方式，来立即执行executeConfigListen()方法。
+//                        notifyListenConfig() 方法我们在后面还会见到。
+
                         executeConfigListen();
                     } catch (Exception e) {
                         LOGGER.error("[ rpc listen execute ] [rpc listen] exception", e);
@@ -713,25 +721,35 @@ public class ClientWorker implements Closeable {
         
         @Override
         public void executeConfigListen() {
-            
+            // 准备两个组：有监听组和无监听组
             Map<String, List<CacheData>> listenCachesMap = new HashMap<String, List<CacheData>>(16);
             Map<String, List<CacheData>> removeListenCachesMap = new HashMap<String, List<CacheData>>(16);
+            // 判断是否到全量同步时间
             long now = System.currentTimeMillis();
             boolean needAllSync = now - lastAllSyncTime >= ALL_SYNC_INTERNAL;
+            // 遍历本地 CacheDataMap。CacheData 保存了配置基本信息，配置的监听器等基础信息。
             for (CacheData cache : cacheMap.get().values()) {
                 
                 synchronized (cache) {
                     
                     //check local listeners consistent.
+                    // 首先判断，该 cacheData 是否需要检查。也就是如果为 false，必定进行检查。
+                    // 1.添加listener.default为false；需要检查。
+                    // 2.接收配置更改通知，设置为false；需要检查。
+                    // 3.last listener被移除，设置为false；需要检查
                     if (cache.isSyncWithServer()) {
+                        // 执行 CacheData.Md5 与 Listener.md5的比对与设定
+                        // 如果不相同，则进行监听器的回调。
                         cache.checkListenerMd5();
+                        // 如果还不需要全量同步，就跳过这个 cacheData.
                         if (!needAllSync) {
                             continue;
                         }
                     }
-                    
+                    // 缓存监听为空和不为空
                     if (!CollectionUtils.isEmpty(cache.getListeners())) {
-                        //get listen  config
+                        // 有监听器的放入 listenCachesMap
+                        //get listen  config  如果不是本地缓存
                         if (!cache.isUseLocalConfigInfo()) {
                             List<CacheData> cacheDatas = listenCachesMap.get(String.valueOf(cache.getTaskId()));
                             if (cacheDatas == null) {
@@ -742,7 +760,7 @@ public class ClientWorker implements Closeable {
                             
                         }
                     } else if (CollectionUtils.isEmpty(cache.getListeners())) {
-                        
+                        // 没有监听器的放入 removeListenCachesMap
                         if (!cache.isUseLocalConfigInfo()) {
                             List<CacheData> cacheDatas = removeListenCachesMap.get(String.valueOf(cache.getTaskId()));
                             if (cacheDatas == null) {
@@ -756,7 +774,7 @@ public class ClientWorker implements Closeable {
                 }
                 
             }
-            
+            // 标志是否有更改的配置
             boolean hasChangedKeys = false;
             
             if (!listenCachesMap.isEmpty()) {
@@ -769,17 +787,20 @@ public class ClientWorker implements Closeable {
                         timestampMap.put(GroupKey.getKeyTenant(cacheData.dataId, cacheData.group, cacheData.tenant),
                                 cacheData.getLastModifiedTs().longValue());
                     }
-                    
+                    // 构建监听器请求
                     ConfigBatchListenRequest configChangeListenRequest = buildConfigRequest(listenCaches);
                     configChangeListenRequest.setListen(true);
                     try {
+                        // 初始化RpcClient
                         RpcClient rpcClient = ensureRpcClient(taskId);
+                        // 发送请求向 Nacos Server 添加配置变化监听器。
+                        // 服务端将返回有变化的dataId，group,tenant
                         ConfigChangeBatchListenResponse configChangeBatchListenResponse = (ConfigChangeBatchListenResponse) requestProxy(
                                 rpcClient, configChangeListenRequest);
                         if (configChangeBatchListenResponse != null && configChangeBatchListenResponse.isSuccess()) {
                             
                             Set<String> changeKeys = new HashSet<String>();
-                            //handle changed keys,notify listener
+                            //handle changed keys,notify listener  处理有变化的配置
                             if (!CollectionUtils.isEmpty(configChangeBatchListenResponse.getChangedConfigs())) {
                                 hasChangedKeys = true;
                                 for (ConfigChangeBatchListenResponse.ConfigContext changeConfig : configChangeBatchListenResponse
@@ -789,6 +810,8 @@ public class ClientWorker implements Closeable {
                                                     changeConfig.getTenant());
                                     changeKeys.add(changeKey);
                                     boolean isInitializing = cacheMap.get().get(changeKey).isInitializing();
+                                    // 刷新上下文
+                                    // 此处将请求 Nacos Server ，获取最新配置内容，并触发 Listener 的回调。
                                     refreshContentAndCheck(changeKey, !isInitializing);
                                 }
                                 
@@ -798,6 +821,7 @@ public class ClientWorker implements Closeable {
                             for (CacheData cacheData : listenCaches) {
                                 String groupKey = GroupKey
                                         .getKeyTenant(cacheData.dataId, cacheData.group, cacheData.getTenant());
+                                // 如果返回的 changeKeys 中，未包含此 groupKey。则说明此内容未发生变化。
                                 if (!changeKeys.contains(groupKey)) {
                                     //sync:cache data md5 = server md5 && cache data md5 = all listeners md5.
                                     synchronized (cacheData) {
@@ -808,11 +832,12 @@ public class ClientWorker implements Closeable {
                                                     System.currentTimeMillis())) {
                                                 continue;
                                             }
+                                            // 则将同步标志设为 true
                                             cacheData.setSyncWithServer(true);
                                         }
                                     }
                                 }
-                                
+                                // 将初始化状态设置 false
                                 cacheData.setInitializing(false);
                             }
                             
@@ -864,6 +889,7 @@ public class ClientWorker implements Closeable {
                 lastAllSyncTime = now;
             }
             //If has changed keys,notify re sync md5.
+            // 如果有改变的配置，则立即进行一次同步配置过程。
             if (hasChangedKeys) {
                 notifyListenConfig();
             }
@@ -879,6 +905,7 @@ public class ClientWorker implements Closeable {
                 RpcClient rpcClient = RpcClientFactory
                         .createClient(uuid + "_config-" + taskId, getConnectionType(), newLabels);
                 if (rpcClient.isWaitInitiated()) {
+                    // 初始化处理器，在处理初始化了对 ConfigChangeNotifyRequest 的处理逻辑。
                     initRpcClientHandler(rpcClient);
                     rpcClient.setTenant(getTenant());
                     rpcClient.clientAbilities(initAbilities());
@@ -931,7 +958,8 @@ public class ClientWorker implements Closeable {
                     configChangeListenRequest);
             return response.isSuccess();
         }
-        
+        // Nacos Config Server 有配置发生变化时，发布LocalDataChangeEvent，监听器监听到该事件，即开始向 Nacos Config Client 发送 ConfigChangeNotifyRequest。
+        // Nacos Config Client 感到到有配置发生变化，向 Nacos Config Server 发送 ConfigQueryRequest 请求最新配置内容。
         @Override
         public ConfigResponse queryConfig(String dataId, String group, String tenant, long readTimeouts, boolean notify)
                 throws NacosException {

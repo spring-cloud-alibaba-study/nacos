@@ -30,7 +30,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @ServletComponentScan
 @EnableScheduling
 public class Nacos {
-    
+    // Nacos 2.x 中弃用了 长轮询 模式，采用 长连接 模式。
+    // Nacos Config Client 每 5 分钟进行一次全量比对。
+    // Nacos Config Server 有配置发生变化时，发布LocalDataChangeEvent，监听器监听到该事件，即开始向 Nacos Config Client 发送 ConfigChangeNotifyRequest。
+    // Nacos Config Client 感到到有配置发生变化，向 Nacos Config Server 发送 ConfigQueryRequest 请求最新配置内容。
     public static void main(String[] args) {
         SpringApplication.run(Nacos.class, args);
     }
