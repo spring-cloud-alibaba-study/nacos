@@ -113,6 +113,7 @@ public class DistroConsistencyServiceImpl implements EphemeralConsistencyService
     //1、 将实例信息存放到内存缓存 ConcurrentHashMap 里面。
     //2、 添加一个任务到 BlockingQueue 队列里面，这个任务就是将最新的实例列表通过 UDP 的方式推送给所有客户端（服务实例），这样客户端就拿到了最新的服务实例列表。没想到吧，计算机网络的知识终于用上了~
     //3、 开启 1s 的延迟任务，将数据通过给其他 Nacos 节点
+
     @Override
     public void put(String key, Record value) throws NacosException {
         // 异步，更新本地注册表

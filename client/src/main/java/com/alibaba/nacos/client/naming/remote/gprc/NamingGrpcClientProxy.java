@@ -272,8 +272,8 @@ public class NamingGrpcClientProxy extends AbstractNamingClientProxy {
     
     private <T extends Response> T requestToServer(AbstractNamingRequest request, Class<T> responseClass)
             throws NacosException {
-//        就是向 Nacos 发起远程调用，如果是 Nacos 集群，则是向集群中的某个 Nacos 节点发起远程调用。
-//        接下来我们看下客户端是如何选择一个 Nacos 节点进行注册的。
+        //        就是向 Nacos 发起远程调用，如果是 Nacos 集群，则是向集群中的某个 Nacos 节点发起远程调用。
+        //        接下来我们看下客户端是如何选择一个 Nacos 节点进行注册的。
         try {
             request.putAllHeader(
                     getSecurityHeaders(request.getNamespace(), request.getGroupName(), request.getServiceName()));
