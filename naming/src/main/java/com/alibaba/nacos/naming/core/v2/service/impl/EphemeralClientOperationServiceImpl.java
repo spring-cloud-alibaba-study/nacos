@@ -71,6 +71,7 @@ public class EphemeralClientOperationServiceImpl implements ClientOperationServi
         client.addServiceInstance(singleton, instanceInfo);
         client.setLastUpdatedTime();
         // 推送事件到客户端
+        client.recalculateRevision();
         NotifyCenter.publishEvent(new ClientOperationEvent.ClientRegisterServiceEvent(singleton, clientId));
         NotifyCenter
                 .publishEvent(new MetadataEvent.InstanceMetadataEvent(singleton, instanceInfo.getMetadataId(), false));
@@ -115,6 +116,7 @@ public class EphemeralClientOperationServiceImpl implements ClientOperationServi
         }
         InstancePublishInfo removedInstance = client.removeServiceInstance(singleton);
         client.setLastUpdatedTime();
+        client.recalculateRevision();
         if (null != removedInstance) {
             NotifyCenter.publishEvent(new ClientOperationEvent.ClientDeregisterServiceEvent(singleton, clientId));
             NotifyCenter.publishEvent(
