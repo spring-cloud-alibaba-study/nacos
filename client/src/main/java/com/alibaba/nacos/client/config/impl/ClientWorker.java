@@ -704,10 +704,9 @@ public class ClientWorker implements Closeable {
                         if (executor.isShutdown() || executor.isTerminated()) {
                             continue;
                         }
-//                        获取队列头部元素，如果获取不到则等待5s。Nacos 通过这种方式来控制循环间隔。
-//                        这里需要特别注意，Nacos 通过调用notifyListenConfig()向 listenExecutebell 设置元素的方式，来立即执行executeConfigListen()方法。
-//                        notifyListenConfig() 方法我们在后面还会见到。
-
+                        //获取队列头部元素，如果获取不到则等待5s。Nacos 通过这种方式来控制循环间隔。
+                        //这里需要特别注意，Nacos 通过调用notifyListenConfig()向 listenExecutebell 设置元素的方式，来立即执行executeConfigListen()方法。
+                        //notifyListenConfig() 方法我们在后面还会见到。
                         executeConfigListen();
                     } catch (Throwable e) {
                         LOGGER.error("[ rpc listen execute ] [rpc listen] exception", e);
@@ -965,6 +964,7 @@ public class ClientWorker implements Closeable {
         }
         // Nacos Config Server 有配置发生变化时，发布LocalDataChangeEvent，监听器监听到该事件，即开始向 Nacos Config Client 发送 ConfigChangeNotifyRequest。
         // Nacos Config Client 感到到有配置发生变化，向 Nacos Config Server 发送 ConfigQueryRequest 请求最新配置内容。
+
         @Override
         public ConfigResponse queryConfig(String dataId, String group, String tenant, long readTimeouts, boolean notify)
                 throws NacosException {
