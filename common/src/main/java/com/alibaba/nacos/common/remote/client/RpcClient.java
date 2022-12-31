@@ -33,6 +33,7 @@ import com.alibaba.nacos.common.lifecycle.Closeable;
 import com.alibaba.nacos.common.remote.ConnectionType;
 import com.alibaba.nacos.common.remote.PayloadRegistry;
 import com.alibaba.nacos.common.utils.CollectionUtils;
+import com.alibaba.nacos.common.utils.InternetAddressUtil;
 import com.alibaba.nacos.common.utils.LoggerUtils;
 import com.alibaba.nacos.common.utils.NumberUtils;
 import com.alibaba.nacos.common.utils.StringUtils;
@@ -630,7 +631,7 @@ public abstract class RpcClient implements Closeable {
     public Response request(Request request, long timeoutMills) throws NacosException {
         int retryTimes = 0;
         Response response;
-        Exception exceptionThrow = null;
+        Throwable exceptionThrow = null;
         long start = System.currentTimeMillis();
         while (retryTimes < rpcClientConfig.retryTimes() && System.currentTimeMillis() < timeoutMills + start) {
             boolean waitReconnect = false;
@@ -664,7 +665,7 @@ public abstract class RpcClient implements Closeable {
                 lastActiveTimeStamp = System.currentTimeMillis();
                 return response;
                 
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 if (waitReconnect) {
                     try {
                         // wait client to reconnect.
@@ -704,8 +705,8 @@ public abstract class RpcClient implements Closeable {
      */
     public void asyncRequest(Request request, RequestCallBack callback) throws NacosException {
         int retryTimes = 0;
-        
-        Exception exceptionToThrow = null;
+    
+        Throwable exceptionToThrow = null;
         long start = System.currentTimeMillis();
         while (retryTimes < rpcClientConfig.retryTimes() && System.currentTimeMillis() < start + callback
                 .getTimeout()) {
@@ -717,7 +718,7 @@ public abstract class RpcClient implements Closeable {
                 }
                 this.currentConnection.asyncRequest(request, callback);
                 return;
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 if (waitReconnect) {
                     try {
                         // wait client to reconnect.
@@ -899,8 +900,7 @@ public abstract class RpcClient implements Closeable {
         if (matcher.find()) {
             serverAddress = matcher.group(1);
         }
-        
-        String[] ipPortTuple = serverAddress.split(Constants.COLON, 2);
+        String[] ipPortTuple = InternetAddressUtil.splitIPPortStr(serverAddress);
         int defaultPort = Integer.parseInt(System.getProperty("nacos.server.port", "8848"));
         String serverPort = CollectionUtils.getOrDefault(ipPortTuple, 1, Integer.toString(defaultPort));
         
